@@ -1,0 +1,7 @@
+vault_pubkeys_json_path: pubkeys.json
+vault_token_path: .vault-token
+vault_cacert: ca.pem
+vault_client_cert: cert.pem
+vault_client_key: key.pem
+vault_path: ethereum/data/goerli/keys
+vault_addr: https://vault.archifleks.net
