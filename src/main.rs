@@ -42,12 +42,12 @@ fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
             Ok(pubkeys) => Ok(pubkeys),
             Err(error) => {
                 error!("Failed to parse public keys from file: {}", error);
-                return Err(error).context("Failed to parse public keys from file");
+                Err(error).context("Failed to parse public keys from file")
             }
         },
         Err(error) => {
             error!("Failed to parse public keys: {}", error);
-            return Err(error).context("Failed to parse public keys from file");
+            Err(error).context("Failed to parse public keys from file")
         }
     }
 }
@@ -57,14 +57,14 @@ fn parse_configuration(args: &Cli) -> Result<Config> {
         Ok(config) => Ok(config),
         Err(error) => {
             error!("Failed to parse configuration: {}", error);
-            return Err(error).context("Failed to parse configuration");
+            Err(error).context("Failed to parse configuration")
         }
     }
 }
 
 fn build_vault_client(config: &Config) -> Result<Client> {
     info!("Reading vault token from file",);
-    let vault_token = parse_token(&config)?;
+    let vault_token = parse_token(config)?;
     info!("Vault token read successfully");
 
     let mut headers = HeaderMap::new();
@@ -74,19 +74,15 @@ fn build_vault_client(config: &Config) -> Result<Client> {
     );
 
     info!("Checking TLS configuration");
-    let vault_cacert = config
-        .vault_cacert
-        .as_ref()
-        .map(|vault_cacert| {
-            if let Ok(vault_cacert) = fs::read(vault_cacert) {
-                info!("CA certificate provided, TLS authentication enabled");
-                Some(Certificate::from_pem(&vault_cacert).ok()).flatten()
-            } else {
-                info!("CA certificate not provided, TLS authentication disabled");
-                None
-            }
-        })
-        .flatten();
+    let vault_cacert = config.vault_cacert.as_ref().and_then(|vault_cacert| {
+        if let Ok(vault_cacert) = fs::read(vault_cacert) {
+            info!("CA certificate provided, TLS authentication enabled");
+            Some(Certificate::from_pem(&vault_cacert).ok()).flatten()
+        } else {
+            info!("CA certificate not provided, TLS authentication disabled");
+            None
+        }
+    });
 
     let vault_client_auth = if let (Some(vault_client_cert), Some(vault_client_key)) =
         (&config.vault_client_cert, &config.vault_client_key)
@@ -107,9 +103,7 @@ fn build_vault_client(config: &Config) -> Result<Client> {
         None
     };
 
-    let _vault_client = match if let (Some(vault_client_auth), Some(vault_cacert)) =
-        (vault_client_auth, vault_cacert)
-    {
+    match if let (Some(vault_client_auth), Some(vault_cacert)) = (vault_client_auth, vault_cacert) {
         info!("Building Vault client with TLS authentication");
         ClientBuilder::new()
             .add_root_certificate(vault_cacert)
@@ -121,12 +115,12 @@ fn build_vault_client(config: &Config) -> Result<Client> {
         info!("Building Vault client without TLS authentication");
         ClientBuilder::new().default_headers(headers).build()
     } {
-        Ok(vault_client) => return Ok(vault_client),
+        Ok(vault_client) => Ok(vault_client),
         Err(error) => {
             error!("Failed to create vault client: {}", error);
-            return Err(error).context("Failed to create vault client");
+            Err(error).context("Failed to create vault client")
         }
-    };
+    }
 }
 
 fn parse_token(config: &Config) -> Result<String> {
@@ -147,7 +141,7 @@ fn parse_token(config: &Config) -> Result<String> {
         Ok(token) => Ok(token),
         Err(error) => {
             error!("Failed to read vault token: {}", error);
-            return Err(error).context("Failed to read vault token from file");
+            Err(error).context("Failed to read vault token from file")
         }
     }
 }
