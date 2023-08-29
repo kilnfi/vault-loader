@@ -7,6 +7,10 @@ use figment::{
 use serde::Deserialize;
 use std::path::PathBuf;
 
+#[cfg(test)]
+#[path = "./config_tests.rs"]
+mod config_tests;
+
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub vault_cacert: Option<PathBuf>,
@@ -18,6 +22,7 @@ pub struct Config {
     pub vault_pubkeys_json_path: PathBuf,
     #[serde(default = "default_vault_max_concurrent_requests")]
     pub vault_max_concurrent_requests: usize,
+    pub web3signer_key_store_path: PathBuf,
 }
 
 fn default_vault_max_concurrent_requests() -> usize {
@@ -33,12 +38,11 @@ impl Config {
 
         let config = config
             .merge(Env::prefixed("VAULT_"))
-            .merge(Serialized::from(&args, ""));
+            .merge(Serialized::defaults(args));
 
-        let has_vault_cacert: bool = config.extract_inner::<PathBuf>("vault_cacert").is_ok();
+        let has_vault_cacert = config.extract_inner::<PathBuf>("vault_cacert").is_ok();
         let has_vault_client_cert = config.extract_inner::<PathBuf>("vault_client_cert").is_ok();
         let has_vault_client_key = config.extract_inner::<PathBuf>("vault_client_key").is_ok();
-
         if has_vault_cacert != has_vault_client_cert || has_vault_cacert != has_vault_client_key {
             return Err(anyhow!("vault_cacert, vault_client_cert, and vault_client_key must be set together or not at all"));
         }

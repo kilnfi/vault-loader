@@ -1,7 +1,9 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use std::path::PathBuf;
 
+#[skip_serializing_none]
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[command(author, version, about, long_about = None, arg_required_else_help(true))]
 pub struct Cli {
@@ -43,5 +45,10 @@ pub struct Cli {
     pub vault_pubkeys_json_path: Option<PathBuf>,
 
     /// Maximum number of concurrent requests to Vault
+    #[arg(long, value_name = "PATH")]
     pub vault_max_concurrent_requests: Option<usize>,
+
+    /// Path on the local disk to a directory containing the web3signer key store
+    #[arg(long, value_name = "PATH")]
+    pub web3signer_key_store_path: Option<PathBuf>,
 }
