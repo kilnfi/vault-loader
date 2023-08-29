@@ -272,14 +272,6 @@ async fn main() -> Result<()> {
         tasks.push((pubkey, task));
     }
 
-    // let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
-    //     match task.await {
-    //         Ok(vault_key) => Ok((pubkey, vault_key)),
-    //         Err(e) => Err((pubkey, e)),
-    //     }
-    // }))
-    // .await;
-
     let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
             Ok(result) => match result {
@@ -297,17 +289,24 @@ async fn main() -> Result<()> {
     }))
     .await;
 
+    let mut tasks = vec![];
     for response in responses {
         match response {
             Ok((pubkey, vault_key)) => {
                 info!("Writing private key for {}", pubkey);
-                write_vault_key(&vault_key.to_config()?, &config.web3signer_key_store_path).await?;
+                let web3signer_key_store_path = config.web3signer_key_store_path.clone();
+                let task = tokio::spawn(async move {
+                    write_vault_key(&vault_key.to_config()?, &web3signer_key_store_path).await
+                });
+                tasks.push(task);
             }
             Err((pubkey, e)) => {
-                error!("Failed to retrieve private key for {}: {:?}", pubkey, e);
+                error!("Failed to write private key for {}: {:?}", pubkey, e);
             }
         }
     }
+
+    let _writes: Vec<_> = join_all(tasks).await;
 
     let end = Instant::now();
     let elapsed = end - start;
