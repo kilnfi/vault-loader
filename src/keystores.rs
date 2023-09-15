@@ -12,8 +12,8 @@ mod keystores_tests;
 pub struct VaultKey {
     #[serde(skip_deserializing)]
     pub pubkey: String,
-    pub vkey: String,
-    pub password: String,
+    pub vkey: Option<String>,
+    pub password: Option<String>,
     pub pbkdf2_key: Option<String>,
     pub scrypt_key: Option<String>,
     pub raw_unencrypted_key: Option<String>,
@@ -36,7 +36,7 @@ impl VaultKey {
                 ..Default::default()
             })),
             None => {
-                if let Some(pbkdf2_key) = &self.pbkdf2_key {
+                if let (Some(pbkdf2_key), Some(password)) = (&self.pbkdf2_key, &self.password) {
                     Ok(Web3signerKeyConfigFormat::from(Web3signerFileKeystore {
                         pubkey: self.pubkey.to_string(),
                         filename: format!("keystore-{}.yaml", self.pubkey),
@@ -45,21 +45,35 @@ impl VaultKey {
                             base64_decode(pbkdf2_key)?.as_str(),
                         )?,
                         keystore_password_file: format!("keystore-{}.password", self.pubkey),
-                        keystore_password_file_content: self.password.to_string(),
+                        keystore_password_file_content: password.to_string(),
                         ..Default::default()
                     }))
-                } else {
+                } else if let (Some(scrypt_key), Some(password)) =
+                    (&self.scrypt_key, &self.password)
+                {
                     Ok(Web3signerKeyConfigFormat::from(Web3signerFileKeystore {
                         pubkey: self.pubkey.to_string(),
                         filename: format!("keystore-{}.yaml", self.pubkey),
                         keystore_file: format!("keystore-{}.json", self.pubkey),
                         keystore_file_content: serde_json::from_str(
-                            base64_decode(self.vkey.as_str())?.as_str(),
+                            base64_decode(scrypt_key)?.as_str(),
                         )?,
                         keystore_password_file: format!("keystore-{}.password", self.pubkey),
-                        keystore_password_file_content: self.password.to_string(),
+                        keystore_password_file_content: password.to_string(),
                         ..Default::default()
                     }))
+                } else if let (Some(vkey), Some(password)) = (&self.vkey, &self.password) {
+                    Ok(Web3signerKeyConfigFormat::from(Web3signerFileKeystore {
+                        pubkey: self.pubkey.to_string(),
+                        filename: format!("keystore-{}.yaml", self.pubkey),
+                        keystore_file: format!("keystore-{}.json", self.pubkey),
+                        keystore_file_content: serde_json::from_str(base64_decode(vkey)?.as_str())?,
+                        keystore_password_file: format!("keystore-{}.password", self.pubkey),
+                        keystore_password_file_content: password.to_string(),
+                        ..Default::default()
+                    }))
+                } else {
+                    Err(anyhow!("Invalid vault key"))
                 }
             }
         }
