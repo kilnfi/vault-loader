@@ -14,7 +14,7 @@ permissions:
   actions: write
   pull-requests: write
   issues: write
-  contents: read
+  contents: write
   packages: write
 
 jobs:
