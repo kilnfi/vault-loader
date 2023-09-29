@@ -43,7 +43,7 @@ impl Config {
         }
 
         let config = config
-            .merge(Env::prefixed("VAULT_"))
+            .merge(Env::raw().filter(|env| env.starts_with("VAULT_")))
             .merge(Serialized::defaults(args));
 
         let has_vault_cacert = config.extract_inner::<PathBuf>("vault_cacert").is_ok();
