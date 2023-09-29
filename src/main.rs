@@ -146,32 +146,6 @@ fn parse_token(config: &Config) -> Result<String> {
     }
 }
 
-async fn fetch_vault_key(vault_client: Client, url: Url, pubkey: &str) -> Result<VaultKey, Error> {
-    let mut vault_key = VaultKey::new(
-        vault_client
-            .get(url.clone())
-            .send()
-            .await?
-            .json::<Value>()
-            .await?["data"]["data"]
-            .clone(),
-        pubkey,
-    );
-    while vault_key.is_err() {
-        vault_key = VaultKey::new(
-            vault_client
-                .get(url.clone())
-                .send()
-                .await?
-                .json::<Value>()
-                .await?["data"]["data"]
-                .clone(),
-            pubkey,
-        );
-    }
-    vault_key
-}
-
 async fn write_vault_key(
     web3signer_key_config: &Web3signerKeyConfigFormat,
     path: &Path,
@@ -227,77 +201,6 @@ async fn main() -> Result<()> {
     let semaphore = Arc::new(Semaphore::new(config.vault_max_concurrent_requests));
     let mut tasks = vec![];
 
-    // for pubkey in &pubkeys {
-    //     info!("Requesting private key for {}", pubkey);
-    //     let url = Url::parse(&format!(
-    //         "{}/v1/{}/{}/vkey",
-    //         &config.vault_addr, &config.vault_path, pubkey,
-    //     ))?;
-    //     let vault_client_clone = vault_client.clone();
-    //     let semaphore_clone = semaphore.clone();
-    //     let pubkey_clone = pubkey.clone();
-
-    //     let task = tokio::spawn(async move {
-    //         Retry::spawn(retry_strategy.clone(), || async move {
-    //             fetch_vault_key(&vault_client_clone, url, pubkey.to_string(), semaphore).await
-    //         })
-    //         .await
-    //     })
-    //     .await;
-
-    //     tasks.push((pubkey, task));
-    // }
-
-    // for pubkey in &pubkeys {
-    //     info!("Requesting private key for {}", pubkey);
-    //     let vault_client = vault_client.clone();
-    //     let url = Url::parse(&format!(
-    //         "{}/v1/{}/{}/vkey",
-    //         &config.vault_addr, &config.vault_path, pubkey,
-    //     ))?;
-    //     let semaphore_clone = semaphore.clone();
-    //     let pubkey_clone = pubkey.clone();
-
-    //     // Use tokio-retry to retry the asynchronous operation
-    //     let task = Retry::spawn(retry_strategy.clone(), || async move {
-    //         let permit = semaphore_clone.acquire_owned().await?;
-    //         let vault_response = &vault_client
-    //             .get(url.clone())
-    //             .send()
-    //             .await?
-    //             .json::<Value>()
-    //             .await?["data"]["data"];
-    //         let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
-    //         drop(permit);
-    //         vault_key
-    //     })
-    //     .await;
-    //     tasks.push((pubkey, task));
-    // }
-
-    // for pubkey in &pubkeys {
-    //     info!("Requesting private key for {}", pubkey);
-    //     let vault_client = vault_client.clone();
-    //     let url = Url::parse(&format!(
-    //         "{}/v1/{}/{}/vkey",
-    //         &config.vault_addr, &config.vault_path, pubkey,
-    //     ))?;
-    //     let pubkey_clone = pubkey.clone();
-    //     let permit = semaphore.clone().acquire_owned().await?;
-    //     let retry_strategy_clone = retry_strategy.clone();
-    //     let task = tokio::spawn(async move {
-    //         Retry::spawn(retry_strategy_clone, || async {
-    //             let vault_response =
-    //                 &vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"];
-    //             let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
-    //             drop(permit);
-    //             vault_key
-    //         })
-    //         .await
-    //     });
-    //     tasks.push((pubkey, task));
-    // }
-
     for pubkey in &pubkeys {
         info!("Requesting private key for {}", pubkey);
         let vault_client = vault_client.clone();
@@ -307,24 +210,6 @@ async fn main() -> Result<()> {
             &config.vault_addr, &config.vault_path, pubkey,
         ))?;
         let pubkey_clone = pubkey.clone();
-        // let task = fetch_vault_key(
-        //     vault_client.clone(),
-        //     url,
-        //     pubkey.to_string(),
-        //     semaphore.clone(),
-        // );
-        // let task = tokio::spawn(async move {
-        //     let vault_response =
-        //         &vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"];
-        //     let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
-        //     drop(permit);
-        //     vault_key
-        // });
-        // let task = tokio::spawn(async move {
-        //     let vault_key = fetch_vault_key(vault_client.clone(), url, pubkey_clone).await;
-        //     drop(permit);
-        //     vault_key
-        // });
         let task = tokio::spawn(async move {
             let mut vault_key = VaultKey::new(
                 vault_client
@@ -355,26 +240,6 @@ async fn main() -> Result<()> {
         tasks.push((pubkey, task));
     }
 
-    // let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
-    //     match task.await {
-    //         Ok(result) => match result {
-    //             Ok(vault_key) => {
-    //                 info!("Received private key for: {}", pubkey);
-    //                 Ok((pubkey, vault_key))
-    //             }
-    //             Err(e) => {
-    //                 error!("Failed to retrieve private key for {}: {}", pubkey, e);
-    //                 Err((pubkey, anyhow!(e)))
-    //             }
-    //         },
-    //         Err(e) => {
-    //             error!("Failed to retrieve private key for {}: {}", pubkey, e);
-    //             Err((pubkey, anyhow!(e)))
-    //         }
-    //     }
-    // }))
-    // .await;
-
     let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
             Ok(result) => match result {
@@ -391,19 +256,6 @@ async fn main() -> Result<()> {
         }
     }))
     .await;
-    // let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
-    //     match task.await {
-    //         Ok(vault_key) => {
-    //             info!("Received private key for: {}", pubkey);
-    //             Ok((pubkey, vault_key))
-    //         }
-    //         Err(e) => {
-    //             error!("Failed to retrieve private key for {}: {}", pubkey, e);
-    //             Err((pubkey, anyhow!(e)))
-    //         }
-    //     }
-    // }))
-    // .await;
 
     let semaphore = Arc::new(Semaphore::new(config.max_open_file_descriptors));
     let mut tasks = vec![];
