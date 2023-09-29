@@ -58,7 +58,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     needs:
       - "get-tag"
-    runs-on: "ubuntu-latest"
+    runs-on: ubuntu-22.04-16-cores
     steps:
       - name: "Check out the repo"
         uses: actions/checkout@v4
