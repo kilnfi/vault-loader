@@ -1,0 +1,26 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    ":dependencyDashboard",
+    ":semanticPrefixFixDepsChoreOthers",
+    ":ignoreModulesAndTests",
+    ":autodetectRangeStrategy",
+    ":prHourlyLimit2",
+    "group:monorepos",
+    "group:recommended",
+    "workarounds:all",
+    ":separatePatchReleases",
+    ":ignoreUnstable",
+    ":prImmediately",
+    ":updateNotScheduled",
+    ":automergeDisabled",
+    "workarounds:all",
+    ":dependencyDashboard",
+    ":gitSignOff"
+  ],
+  "prConcurrentLimit": 5,
+  "ignorePaths": [],
+  "enabledManagers": [
+    "github-actions",
+  ]
+}

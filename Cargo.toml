@@ -1,6 +1,6 @@
 [package]
 name = "vault-loader"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -13,11 +13,13 @@ enum_dispatch = "0.3.12"
 env_logger = { version = "0.10.0", features = ["auto-color"] }
 figment = { version = "0.10.8", features = ["env", "yaml"] }
 futures = "0.3.28"
+glob = "0.3.1"
 log = "0.4.17"
-reqwest = { version = "0.11.17", features = ["rustls", "rustls-tls", "json"] }
+reqwest = { version = "0.11.17", default-features = false, features = ["rustls", "rustls-tls", "json"] }
 rustls = "0.21.1"
 serde = { version = "1.0.156", features = ["derive"] }
 serde_json = "1.0.96"
 serde_with = { version = "3.2.0", features = ["macros"] }
 serde_yaml = "0.9.21"
 tokio = { version = "1", features = ["full"] }
+tokio-retry = "0.3.0"

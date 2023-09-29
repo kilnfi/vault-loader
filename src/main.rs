@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Error, Result};
 use clap::Parser;
 use futures::future::join_all;
 use keystores::Web3signerKeyConfig;
-use log::{error, info};
+use log::{error, info, warn};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
     Certificate, Client, ClientBuilder, Identity, Url,
@@ -23,33 +23,61 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::keystores::{VaultKey, Web3signerKeyConfigFormat};
 
-fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
-    match config.vault_pubkeys_json_path.canonicalize() {
-        Ok(pubkeys_json_path) => {
-            info!(
-                "Reading public keys from file: {}",
-                pubkeys_json_path.display()
-            );
-        }
-        Err(error) => {
-            error!("Failed to canonicalize public keys file path: {}", error);
-            return Err(error).context("Failed to canonicalize public keys file path");
-        }
-    }
+use glob::glob;
 
-    match fs::read_to_string(&config.vault_pubkeys_json_path) {
-        Ok(pubkeys_file) => match serde_json::from_str(&pubkeys_file) {
-            Ok(pubkeys) => Ok(pubkeys),
-            Err(error) => {
-                error!("Failed to parse public keys from file: {}", error);
-                Err(error).context("Failed to parse public keys from file")
+fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
+    let pattern: &str = config.vault_pubkeys_json_glob.as_ref();
+    let mut pubkeys: Vec<String> = Vec::new();
+
+    match glob(pattern) {
+        Ok(entries) => {
+            for entry in entries {
+                match entry {
+                    Ok(path) => match path.canonicalize() {
+                        Ok(pubkeys_json_path) => {
+                            info!(
+                                "Reading public keys from file: {}",
+                                pubkeys_json_path.display()
+                            );
+                            match fs::read_to_string(pubkeys_json_path) {
+                                Ok(content) => {
+                                    match serde_json::from_str::<Vec<String>>(&content) {
+                                        Ok(mut json) => pubkeys.append(&mut json),
+                                        Err(error) => {
+                                            error!(
+                                                "Failed to parse public keys from file: {}",
+                                                error
+                                            );
+                                            return Err(error)
+                                                .context("Failed to read public keys file");
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    error!("Failed to read public keys file: {}", error);
+                                    return Err(error).context("Failed to read public keys file");
+                                }
+                            };
+                        }
+                        Err(error) => {
+                            error!("Failed to canonicalize public keys file path: {}", error);
+                            return Err(error)
+                                .context("Failed to canonicalize public keys file path");
+                        }
+                    },
+                    Err(error) => {
+                        error!("Failed to read public keys file: {}", error);
+                        return Err(error).context("Failed to read public keys file");
+                    }
+                }
             }
-        },
+        }
         Err(error) => {
-            error!("Failed to parse public keys: {}", error);
-            Err(error).context("Failed to parse public keys from file")
+            error!("Failed to read public keys file: {}", error);
+            return Err(error).context("Failed to read public keys file");
         }
     }
+    Ok(pubkeys)
 }
 
 fn parse_configuration(args: &Cli) -> Result<Config> {
@@ -198,74 +226,42 @@ async fn main() -> Result<()> {
     let vault_client = build_vault_client(&config)?;
     info!("Vault client built successfully");
 
-    // let vault_cacert = if let Some(vault_cacert) = &config.vault_cacert {
-    //     if let Ok(vault_cacert) = fs::read(vault_cacert) {
-    //         info!("CA certificate provided, TLS authentication enabled");
-    //         Some(Certificate::from_pem(&vault_cacert)?)
-    //     } else {
-    //         info!("CA certificate not provided, TLS authentication disabled");
-    //         None
-    //     }
-    // } else {
-    //     None
-    // };
-
-    // let vault_client_auth = if let (Some(vault_client_cert), Some(vault_client_key)) =
-    //     (&config.vault_client_cert, &config.vault_client_key)
-    // {
-    //     if let (Ok(vault_client_cert), Ok(vault_client_key)) = (
-    //         fs::read_to_string(vault_client_cert),
-    //         fs::read_to_string(vault_client_key),
-    //     ) {
-    //         info!("Client certificate and key provided, TLS authentication enabled");
-    //         Some(Identity::from_pem(
-    //             (vault_client_cert + &vault_client_key).as_bytes(),
-    //         )?)
-    //     } else {
-    //         info!("Client certificate and key not provided, TLS authentication disabled");
-    //         None
-    //     }
-    // } else {
-    //     None
-    // };
-
-    // let vault_client = match if let (Some(vault_client_auth), Some(vault_cacert)) =
-    //     (vault_client_auth, vault_cacert)
-    // {
-    //     info!("Building Vault client with TLS authentication");
-    //     ClientBuilder::new()
-    //         .add_root_certificate(vault_cacert)
-    //         .identity(vault_client_auth)
-    //         .default_headers(headers)
-    //         .use_rustls_tls()
-    //         .build()
-    // } else {
-    //     info!("Building Vault client without TLS authentication");
-    //     ClientBuilder::new().default_headers(headers).build()
-    // } {
-    //     Ok(vault_client) => vault_client,
-    //     Err(error) => {
-    //         error!("Failed to create vault client: {}", error);
-    //         return Err(error).context("Failed to create vault client");
-    //     }
-    // };
-
     let semaphore = Arc::new(Semaphore::new(config.vault_max_concurrent_requests));
     let mut tasks = vec![];
 
     for pubkey in &pubkeys {
         info!("Requesting private key for {}", pubkey);
         let vault_client = vault_client.clone();
+        let permit = semaphore.clone().acquire_owned().await?;
         let url = Url::parse(&format!(
             "{}/v1/{}/{}/vkey",
             &config.vault_addr, &config.vault_path, pubkey,
         ))?;
-        let permit = semaphore.clone().acquire_owned().await?;
         let pubkey_clone = pubkey.clone();
         let task = tokio::spawn(async move {
-            let vault_response =
-                &vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"];
-            let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
+            let mut vault_key = VaultKey::new(
+                vault_client
+                    .get(url.clone())
+                    .send()
+                    .await?
+                    .json::<Value>()
+                    .await?["data"]["data"]
+                    .clone(),
+                &pubkey_clone,
+            );
+            while vault_key.is_err() {
+                warn!("Retrying private key for {}", &pubkey_clone);
+                vault_key = VaultKey::new(
+                    vault_client
+                        .get(url.clone())
+                        .send()
+                        .await?
+                        .json::<Value>()
+                        .await?["data"]["data"]
+                        .clone(),
+                    &pubkey_clone,
+                );
+            }
             drop(permit);
             vault_key
         });
@@ -289,24 +285,48 @@ async fn main() -> Result<()> {
     }))
     .await;
 
+    let semaphore = Arc::new(Semaphore::new(config.max_open_file_descriptors));
     let mut tasks = vec![];
+
     for response in responses {
         match response {
             Ok((pubkey, vault_key)) => {
                 info!("Writing private key for {}", pubkey);
+                let permit = semaphore.clone().acquire_owned().await?;
                 let web3signer_key_store_path = config.web3signer_key_store_path.clone();
                 let task = tokio::spawn(async move {
-                    write_vault_key(&vault_key.to_config()?, &web3signer_key_store_path).await
+                    let write =
+                        write_vault_key(&vault_key.to_config()?, &web3signer_key_store_path).await;
+                    drop(permit);
+                    write
                 });
-                tasks.push(task);
+                tasks.push((pubkey, task));
             }
             Err((pubkey, e)) => {
-                error!("Failed to write private key for {}: {:?}", pubkey, e);
+                error!("Failed to write private key for {}: {}", pubkey, e);
             }
         }
     }
 
-    let _writes: Vec<_> = join_all(tasks).await;
+    let _writes: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
+        match task.await {
+            Ok(result) => match result {
+                Ok(_) => {
+                    info!("Private key written successfully for: {}", pubkey);
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("Failed to write private key for {}: {}", pubkey, e);
+                    Err(anyhow!(e))
+                }
+            },
+            Err(e) => {
+                error!("Failed to write private key for {}: {}", pubkey, e);
+                Err(anyhow!(e))
+            }
+        }
+    }))
+    .await;
 
     let end = Instant::now();
     let elapsed = end - start;
