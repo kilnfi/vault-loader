@@ -33,38 +33,9 @@ fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
         Ok(entries) => {
             for entry in entries {
                 match entry {
-                    Ok(path) => match path.canonicalize() {
-                        Ok(pubkeys_json_path) => {
-                            info!(
-                                "Reading public keys from file: {}",
-                                pubkeys_json_path.display()
-                            );
-                            match fs::read_to_string(pubkeys_json_path) {
-                                Ok(content) => {
-                                    match serde_json::from_str::<Vec<String>>(&content) {
-                                        Ok(mut json) => pubkeys.append(&mut json),
-                                        Err(error) => {
-                                            error!(
-                                                "Failed to parse public keys from file: {}",
-                                                error
-                                            );
-                                            return Err(error)
-                                                .context("Failed to read public keys file");
-                                        }
-                                    }
-                                }
-                                Err(error) => {
-                                    error!("Failed to read public keys file: {}", error);
-                                    return Err(error).context("Failed to read public keys file");
-                                }
-                            };
-                        }
-                        Err(error) => {
-                            error!("Failed to canonicalize public keys file path: {}", error);
-                            return Err(error)
-                                .context("Failed to canonicalize public keys file path");
-                        }
-                    },
+                    Ok(path) => pubkeys.append(&mut serde_json::from_str::<Vec<String>>(
+                        &fs::read_to_string(path.canonicalize()?)?,
+                    )?),
                     Err(error) => {
                         error!("Failed to read public keys file: {}", error);
                         return Err(error).context("Failed to read public keys file");
@@ -73,8 +44,8 @@ fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
             }
         }
         Err(error) => {
-            error!("Failed to read public keys file: {}", error);
-            return Err(error).context("Failed to read public keys file");
+            error!("Failed to parse glob patter: {}", error);
+            return Err(error).context("Failed to parse glob pattern");
         }
     }
     Ok(pubkeys)
