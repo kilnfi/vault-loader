@@ -27,7 +27,7 @@ fn test_vault_key_new_full() {
         ..Default::default()
     };
 
-    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), PUBKEY.to_owned());
+    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), PUBKEY);
     assert!(vault_key_result.is_ok());
     assert_eq!(vault_key_result.as_ref().unwrap(), &expected_vault_key);
 
@@ -68,7 +68,7 @@ fn test_vault_key_new_partial_pbkdf2() {
         raw_unencrypted_key: None,
     };
 
-    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), PUBKEY.to_owned());
+    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), PUBKEY);
     assert!(vault_key_result.is_ok());
     assert_eq!(vault_key_result.as_ref().unwrap(), &expected_vault_key);
 
@@ -112,7 +112,7 @@ fn test_vault_key_new_partial_vkey() {
         raw_unencrypted_key: None,
     };
 
-    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), PUBKEY.to_owned());
+    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), PUBKEY);
     assert!(vault_key_result.is_ok());
     assert_eq!(vault_key_result.as_ref().unwrap(), &expected_vault_key);
 
@@ -144,6 +144,6 @@ fn test_vault_key_new_invalid() {
         }"#,
     );
     assert!(vault_key_json.is_ok());
-    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), "0x8000025593183bad1730e78b87b6bce428492e3bf9142d2609032daf674596f955d6403481c7d84809905a262c0136e2".to_owned());
+    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), "0x8000025593183bad1730e78b87b6bce428492e3bf9142d2609032daf674596f955d6403481c7d84809905a262c0136e2");
     assert!(vault_key_result.is_err());
 }

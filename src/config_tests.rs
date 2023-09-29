@@ -13,6 +13,7 @@ fn test_config_ok() {
         vault_pubkeys_json_path: Some(PathBuf::from("/vault_loader/pubkeys.json")),
         vault_max_concurrent_requests: None,
         web3signer_key_store_path: Some(PathBuf::from("/web3signer")),
+        max_open_file_descriptors: Some(1024),
     };
     let config = Config::new(&args);
     assert!(config.is_ok());
@@ -32,6 +33,7 @@ fn test_config_err() {
         vault_pubkeys_json_path: Some(PathBuf::from("/vault_loader/pubkeys.json")),
         vault_max_concurrent_requests: None,
         web3signer_key_store_path: Some(PathBuf::from("/web3signer")),
+        max_open_file_descriptors: None,
     };
     let config = Config::new(&args);
     assert!(config.is_err());
