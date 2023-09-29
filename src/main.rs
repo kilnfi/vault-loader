@@ -23,33 +23,61 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::keystores::{VaultKey, Web3signerKeyConfigFormat};
 
-fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
-    match config.vault_pubkeys_json_path.canonicalize() {
-        Ok(pubkeys_json_path) => {
-            info!(
-                "Reading public keys from file: {}",
-                pubkeys_json_path.display()
-            );
-        }
-        Err(error) => {
-            error!("Failed to canonicalize public keys file path: {}", error);
-            return Err(error).context("Failed to canonicalize public keys file path");
-        }
-    }
+use glob::glob;
 
-    match fs::read_to_string(&config.vault_pubkeys_json_path) {
-        Ok(pubkeys_file) => match serde_json::from_str(&pubkeys_file) {
-            Ok(pubkeys) => Ok(pubkeys),
-            Err(error) => {
-                error!("Failed to parse public keys from file: {}", error);
-                Err(error).context("Failed to parse public keys from file")
+fn parse_public_keys(config: &Config) -> Result<Vec<String>> {
+    let pattern: &str = config.vault_pubkeys_json_glob.as_ref();
+    let mut pubkeys: Vec<String> = Vec::new();
+
+    match glob(pattern) {
+        Ok(entries) => {
+            for entry in entries {
+                match entry {
+                    Ok(path) => match path.canonicalize() {
+                        Ok(pubkeys_json_path) => {
+                            info!(
+                                "Reading public keys from file: {}",
+                                pubkeys_json_path.display()
+                            );
+                            match fs::read_to_string(pubkeys_json_path) {
+                                Ok(content) => {
+                                    match serde_json::from_str::<Vec<String>>(&content) {
+                                        Ok(mut json) => pubkeys.append(&mut json),
+                                        Err(error) => {
+                                            error!(
+                                                "Failed to parse public keys from file: {}",
+                                                error
+                                            );
+                                            return Err(error)
+                                                .context("Failed to read public keys file");
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    error!("Failed to read public keys file: {}", error);
+                                    return Err(error).context("Failed to read public keys file");
+                                }
+                            };
+                        }
+                        Err(error) => {
+                            error!("Failed to canonicalize public keys file path: {}", error);
+                            return Err(error)
+                                .context("Failed to canonicalize public keys file path");
+                        }
+                    },
+                    Err(error) => {
+                        error!("Failed to read public keys file: {}", error);
+                        return Err(error).context("Failed to read public keys file");
+                    }
+                }
             }
-        },
+        }
         Err(error) => {
-            error!("Failed to parse public keys: {}", error);
-            Err(error).context("Failed to parse public keys from file")
+            error!("Failed to read public keys file: {}", error);
+            return Err(error).context("Failed to read public keys file");
         }
     }
+    Ok(pubkeys)
 }
 
 fn parse_configuration(args: &Cli) -> Result<Config> {

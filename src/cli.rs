@@ -42,7 +42,7 @@ pub struct Cli {
 
     /// Path on the local disk to a json file containing a list of public keys to load
     #[arg(long, value_name = "PATH")]
-    pub vault_pubkeys_json_path: Option<PathBuf>,
+    pub vault_pubkeys_json_glob: Option<String>,
 
     /// Maximum number of concurrent requests to Vault
     #[arg(long, value_name = "PATH")]
