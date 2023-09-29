@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Error, Result};
 use clap::Parser;
 use futures::future::join_all;
 use keystores::Web3signerKeyConfig;
-use log::{error, info};
+use log::{error, info, warn};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
     Certificate, Client, ClientBuilder, Identity, Url,
@@ -146,6 +146,32 @@ fn parse_token(config: &Config) -> Result<String> {
     }
 }
 
+async fn fetch_vault_key(vault_client: Client, url: Url, pubkey: &str) -> Result<VaultKey, Error> {
+    let mut vault_key = VaultKey::new(
+        vault_client
+            .get(url.clone())
+            .send()
+            .await?
+            .json::<Value>()
+            .await?["data"]["data"]
+            .clone(),
+        pubkey,
+    );
+    while vault_key.is_err() {
+        vault_key = VaultKey::new(
+            vault_client
+                .get(url.clone())
+                .send()
+                .await?
+                .json::<Value>()
+                .await?["data"]["data"]
+                .clone(),
+            pubkey,
+        );
+    }
+    vault_key
+}
+
 async fn write_vault_key(
     web3signer_key_config: &Web3signerKeyConfigFormat,
     path: &Path,
@@ -198,79 +224,156 @@ async fn main() -> Result<()> {
     let vault_client = build_vault_client(&config)?;
     info!("Vault client built successfully");
 
-    // let vault_cacert = if let Some(vault_cacert) = &config.vault_cacert {
-    //     if let Ok(vault_cacert) = fs::read(vault_cacert) {
-    //         info!("CA certificate provided, TLS authentication enabled");
-    //         Some(Certificate::from_pem(&vault_cacert)?)
-    //     } else {
-    //         info!("CA certificate not provided, TLS authentication disabled");
-    //         None
-    //     }
-    // } else {
-    //     None
-    // };
-
-    // let vault_client_auth = if let (Some(vault_client_cert), Some(vault_client_key)) =
-    //     (&config.vault_client_cert, &config.vault_client_key)
-    // {
-    //     if let (Ok(vault_client_cert), Ok(vault_client_key)) = (
-    //         fs::read_to_string(vault_client_cert),
-    //         fs::read_to_string(vault_client_key),
-    //     ) {
-    //         info!("Client certificate and key provided, TLS authentication enabled");
-    //         Some(Identity::from_pem(
-    //             (vault_client_cert + &vault_client_key).as_bytes(),
-    //         )?)
-    //     } else {
-    //         info!("Client certificate and key not provided, TLS authentication disabled");
-    //         None
-    //     }
-    // } else {
-    //     None
-    // };
-
-    // let vault_client = match if let (Some(vault_client_auth), Some(vault_cacert)) =
-    //     (vault_client_auth, vault_cacert)
-    // {
-    //     info!("Building Vault client with TLS authentication");
-    //     ClientBuilder::new()
-    //         .add_root_certificate(vault_cacert)
-    //         .identity(vault_client_auth)
-    //         .default_headers(headers)
-    //         .use_rustls_tls()
-    //         .build()
-    // } else {
-    //     info!("Building Vault client without TLS authentication");
-    //     ClientBuilder::new().default_headers(headers).build()
-    // } {
-    //     Ok(vault_client) => vault_client,
-    //     Err(error) => {
-    //         error!("Failed to create vault client: {}", error);
-    //         return Err(error).context("Failed to create vault client");
-    //     }
-    // };
-
     let semaphore = Arc::new(Semaphore::new(config.vault_max_concurrent_requests));
     let mut tasks = vec![];
+
+    // for pubkey in &pubkeys {
+    //     info!("Requesting private key for {}", pubkey);
+    //     let url = Url::parse(&format!(
+    //         "{}/v1/{}/{}/vkey",
+    //         &config.vault_addr, &config.vault_path, pubkey,
+    //     ))?;
+    //     let vault_client_clone = vault_client.clone();
+    //     let semaphore_clone = semaphore.clone();
+    //     let pubkey_clone = pubkey.clone();
+
+    //     let task = tokio::spawn(async move {
+    //         Retry::spawn(retry_strategy.clone(), || async move {
+    //             fetch_vault_key(&vault_client_clone, url, pubkey.to_string(), semaphore).await
+    //         })
+    //         .await
+    //     })
+    //     .await;
+
+    //     tasks.push((pubkey, task));
+    // }
+
+    // for pubkey in &pubkeys {
+    //     info!("Requesting private key for {}", pubkey);
+    //     let vault_client = vault_client.clone();
+    //     let url = Url::parse(&format!(
+    //         "{}/v1/{}/{}/vkey",
+    //         &config.vault_addr, &config.vault_path, pubkey,
+    //     ))?;
+    //     let semaphore_clone = semaphore.clone();
+    //     let pubkey_clone = pubkey.clone();
+
+    //     // Use tokio-retry to retry the asynchronous operation
+    //     let task = Retry::spawn(retry_strategy.clone(), || async move {
+    //         let permit = semaphore_clone.acquire_owned().await?;
+    //         let vault_response = &vault_client
+    //             .get(url.clone())
+    //             .send()
+    //             .await?
+    //             .json::<Value>()
+    //             .await?["data"]["data"];
+    //         let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
+    //         drop(permit);
+    //         vault_key
+    //     })
+    //     .await;
+    //     tasks.push((pubkey, task));
+    // }
+
+    // for pubkey in &pubkeys {
+    //     info!("Requesting private key for {}", pubkey);
+    //     let vault_client = vault_client.clone();
+    //     let url = Url::parse(&format!(
+    //         "{}/v1/{}/{}/vkey",
+    //         &config.vault_addr, &config.vault_path, pubkey,
+    //     ))?;
+    //     let pubkey_clone = pubkey.clone();
+    //     let permit = semaphore.clone().acquire_owned().await?;
+    //     let retry_strategy_clone = retry_strategy.clone();
+    //     let task = tokio::spawn(async move {
+    //         Retry::spawn(retry_strategy_clone, || async {
+    //             let vault_response =
+    //                 &vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"];
+    //             let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
+    //             drop(permit);
+    //             vault_key
+    //         })
+    //         .await
+    //     });
+    //     tasks.push((pubkey, task));
+    // }
 
     for pubkey in &pubkeys {
         info!("Requesting private key for {}", pubkey);
         let vault_client = vault_client.clone();
+        let permit = semaphore.clone().acquire_owned().await?;
         let url = Url::parse(&format!(
             "{}/v1/{}/{}/vkey",
             &config.vault_addr, &config.vault_path, pubkey,
         ))?;
-        let permit = semaphore.clone().acquire_owned().await?;
         let pubkey_clone = pubkey.clone();
+        // let task = fetch_vault_key(
+        //     vault_client.clone(),
+        //     url,
+        //     pubkey.to_string(),
+        //     semaphore.clone(),
+        // );
+        // let task = tokio::spawn(async move {
+        //     let vault_response =
+        //         &vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"];
+        //     let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
+        //     drop(permit);
+        //     vault_key
+        // });
+        // let task = tokio::spawn(async move {
+        //     let vault_key = fetch_vault_key(vault_client.clone(), url, pubkey_clone).await;
+        //     drop(permit);
+        //     vault_key
+        // });
         let task = tokio::spawn(async move {
-            let vault_response =
-                &vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"];
-            let vault_key = VaultKey::new(vault_response.clone(), pubkey_clone);
+            let mut vault_key = VaultKey::new(
+                vault_client
+                    .get(url.clone())
+                    .send()
+                    .await?
+                    .json::<Value>()
+                    .await?["data"]["data"]
+                    .clone(),
+                &pubkey_clone,
+            );
+            while vault_key.is_err() {
+                warn!("Retrying private key for {}", &pubkey_clone);
+                vault_key = VaultKey::new(
+                    vault_client
+                        .get(url.clone())
+                        .send()
+                        .await?
+                        .json::<Value>()
+                        .await?["data"]["data"]
+                        .clone(),
+                    &pubkey_clone,
+                );
+            }
             drop(permit);
             vault_key
         });
         tasks.push((pubkey, task));
     }
+
+    // let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
+    //     match task.await {
+    //         Ok(result) => match result {
+    //             Ok(vault_key) => {
+    //                 info!("Received private key for: {}", pubkey);
+    //                 Ok((pubkey, vault_key))
+    //             }
+    //             Err(e) => {
+    //                 error!("Failed to retrieve private key for {}: {}", pubkey, e);
+    //                 Err((pubkey, anyhow!(e)))
+    //             }
+    //         },
+    //         Err(e) => {
+    //             error!("Failed to retrieve private key for {}: {}", pubkey, e);
+    //             Err((pubkey, anyhow!(e)))
+    //         }
+    //     }
+    // }))
+    // .await;
 
     let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
@@ -288,25 +391,62 @@ async fn main() -> Result<()> {
         }
     }))
     .await;
+    // let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
+    //     match task.await {
+    //         Ok(vault_key) => {
+    //             info!("Received private key for: {}", pubkey);
+    //             Ok((pubkey, vault_key))
+    //         }
+    //         Err(e) => {
+    //             error!("Failed to retrieve private key for {}: {}", pubkey, e);
+    //             Err((pubkey, anyhow!(e)))
+    //         }
+    //     }
+    // }))
+    // .await;
 
+    let semaphore = Arc::new(Semaphore::new(config.max_open_file_descriptors));
     let mut tasks = vec![];
+
     for response in responses {
         match response {
             Ok((pubkey, vault_key)) => {
                 info!("Writing private key for {}", pubkey);
+                let permit = semaphore.clone().acquire_owned().await?;
                 let web3signer_key_store_path = config.web3signer_key_store_path.clone();
                 let task = tokio::spawn(async move {
-                    write_vault_key(&vault_key.to_config()?, &web3signer_key_store_path).await
+                    let write =
+                        write_vault_key(&vault_key.to_config()?, &web3signer_key_store_path).await;
+                    drop(permit);
+                    write
                 });
-                tasks.push(task);
+                tasks.push((pubkey, task));
             }
             Err((pubkey, e)) => {
-                error!("Failed to write private key for {}: {:?}", pubkey, e);
+                error!("Failed to write private key for {}: {}", pubkey, e);
             }
         }
     }
 
-    let _writes: Vec<_> = join_all(tasks).await;
+    let _writes: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
+        match task.await {
+            Ok(result) => match result {
+                Ok(_) => {
+                    info!("Private key written successfully for: {}", pubkey);
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("Failed to write private key for {}: {}", pubkey, e);
+                    Err(anyhow!(e))
+                }
+            },
+            Err(e) => {
+                error!("Failed to write private key for {}: {}", pubkey, e);
+                Err(anyhow!(e))
+            }
+        }
+    }))
+    .await;
 
     let end = Instant::now();
     let elapsed = end - start;

@@ -51,4 +51,8 @@ pub struct Cli {
     /// Path on the local disk to a directory containing the web3signer key store
     #[arg(long, value_name = "PATH")]
     pub web3signer_key_store_path: Option<PathBuf>,
+
+    /// Maximum number of concurrent requests to Vault
+    #[arg(long, value_name = "FD")]
+    pub max_open_file_descriptors: Option<usize>,
 }

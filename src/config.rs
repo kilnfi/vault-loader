@@ -22,11 +22,17 @@ pub struct Config {
     pub vault_pubkeys_json_path: PathBuf,
     #[serde(default = "default_vault_max_concurrent_requests")]
     pub vault_max_concurrent_requests: usize,
+    #[serde(default = "default_max_open_file_descriptors")]
+    pub max_open_file_descriptors: usize,
     pub web3signer_key_store_path: PathBuf,
 }
 
 fn default_vault_max_concurrent_requests() -> usize {
     20
+}
+
+fn default_max_open_file_descriptors() -> usize {
+    1024
 }
 
 impl Config {
