@@ -3,10 +3,18 @@ use base64::{engine::general_purpose, Engine as _};
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::error;
+use thiserror::Error;
 
 #[cfg(test)]
 #[path = "./keystores_tests.rs"]
 mod keystores_tests;
+
+#[derive(Error, Debug)]
+pub enum VaultError {
+    #[error("Invalid vault key {0}")]
+    InvalidVaultKey(String),
+}
 
 #[derive(Deserialize, Debug, PartialEq, Default, Clone)]
 pub struct VaultKey {
@@ -21,7 +29,7 @@ pub struct VaultKey {
 }
 
 impl VaultKey {
-    pub fn new(object: Value, pubkey: &str) -> Result<Self, anyhow::Error> {
+    pub fn new(object: Value, pubkey: &str) -> Result<Self, Box<dyn error::Error + Send + Sync>> {
         let mut vault_key: Self = serde_json::from_value(object)?;
         vault_key.pubkey = pubkey.to_string();
         if vault_key.vkey.is_none()
@@ -30,7 +38,7 @@ impl VaultKey {
             && vault_key.scrypt_key.is_none()
             && vault_key.raw_unencrypted_key.is_none()
         {
-            return Err(anyhow!("Invalid vault key"));
+            return Err(Box::new(VaultError::InvalidVaultKey(pubkey.to_string())));
         }
         Ok(vault_key)
     }

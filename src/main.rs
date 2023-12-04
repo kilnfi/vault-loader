@@ -213,16 +213,18 @@ async fn main() -> Result<()> {
         let pubkey_clone = pubkey.clone();
         let task = tokio::spawn(async move {
             let vault_key = loop {
-                let vault_key = VaultKey::new(
-                    vault_client
-                        .get(url.clone())
-                        .send()
-                        .await?
-                        .json::<Value>()
-                        .await?["data"]["data"]
-                        .clone(),
-                    &pubkey_clone,
-                );
+                let vault_key = async {
+                    VaultKey::new(
+                        vault_client
+                            .get(url.clone())
+                            .send()
+                            .await?
+                            .json::<Value>()
+                            .await?["data"]["data"]
+                            .clone(),
+                        &pubkey_clone,
+                    )
+                }.await;
 
                 if vault_key.is_ok() {
                     break vault_key;
@@ -289,7 +291,7 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => {
                     error!("Failed to write private key for {}: {}", pubkey, e);
-                    Err(anyhow!(e))
+                    Err(anyhow!(format!("{}", e)))
                 }
             },
             Err(e) => {
