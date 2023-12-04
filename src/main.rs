@@ -224,7 +224,8 @@ async fn main() -> Result<()> {
                             .clone(),
                         &pubkey_clone,
                     )
-                }.await;
+                }
+                .await;
 
                 if vault_key.is_ok() {
                     drop(permit);
