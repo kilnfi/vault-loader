@@ -9,11 +9,13 @@ use reqwest::{
 };
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use std::{fs, path::Path};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
+use tokio::time::sleep;
 
 mod cli;
 mod config;
@@ -145,11 +147,15 @@ fn parse_token(config: &Config) -> Result<String> {
     }
 }
 
-async fn write_vault_key(
-    web3signer_key_config: &Web3signerKeyConfigFormat,
-    path: &Path,
-) -> Result<(), Error> {
-    match web3signer_key_config {
+async fn get_vault_key(vault_client: &Client, url: Url, pubkey: &str) -> Result<VaultKey, Error> {
+    VaultKey::new(
+        vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"].clone(),
+        pubkey,
+    )
+}
+
+async fn write_vault_key(vault_key: &VaultKey, path: &Path) -> Result<(), Error> {
+    match vault_key.to_config()? {
         Web3signerKeyConfigFormat::Web3signerFileRaw(config) => {
             let path_config = path.join(&config.filename);
             let mut file_config = File::create(path_config).await?;
@@ -200,7 +206,7 @@ async fn main() -> Result<()> {
     let semaphore = Arc::new(Semaphore::new(config.vault_max_concurrent_requests));
     let mut tasks = vec![];
 
-    for pubkey in &pubkeys {
+    for pubkey in pubkeys {
         info!("Requesting private key for {}", pubkey);
         let vault_client = vault_client.clone();
         let permit = semaphore.clone().acquire_owned().await?;
@@ -210,48 +216,36 @@ async fn main() -> Result<()> {
         ))?;
         let pubkey_clone = pubkey.clone();
         let task = tokio::spawn(async move {
-            let mut vault_key = VaultKey::new(
-                vault_client
-                    .get(url.clone())
-                    .send()
-                    .await?
-                    .json::<Value>()
-                    .await?["data"]["data"]
-                    .clone(),
-                &pubkey_clone,
-            );
-            while vault_key.is_err() {
-                warn!("Retrying private key for {}", &pubkey_clone);
-                vault_key = VaultKey::new(
-                    vault_client
-                        .get(url.clone())
-                        .send()
-                        .await?
-                        .json::<Value>()
-                        .await?["data"]["data"]
-                        .clone(),
-                    &pubkey_clone,
-                );
+            let sleep_duration_seconds = Duration::from_secs(1);
+            loop {
+                if let Ok(vault_key) =
+                    get_vault_key(&vault_client, url.clone(), &pubkey_clone).await
+                {
+                    drop(permit);
+                    break vault_key;
+                } else {
+                    warn!(
+                        "Failed to retrieve private key for {}, retrying in {}s...",
+                        pubkey_clone,
+                        sleep_duration_seconds.as_secs()
+                    );
+                    sleep(Duration::from_secs(1)).await;
+                }
             }
-            drop(permit);
-            vault_key
         });
         tasks.push((pubkey, task));
     }
 
     let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
-            Ok(result) => match result {
-                Ok(vault_key) => {
-                    info!("Received private key for: {}", pubkey);
-                    Ok((pubkey, vault_key))
-                }
-                Err(e) => {
-                    error!("Failed to retrieve private key for {}: {:?}", pubkey, e);
-                    Err((pubkey, anyhow!(e)))
-                }
-            },
-            Err(e) => Err((pubkey, anyhow!(e))),
+            Ok(vault_key) => {
+                info!("Received private key for: {}", pubkey);
+                Ok((pubkey, vault_key))
+            }
+            Err(e) => {
+                error!("Failed to retrieve private key for {}: {:?}", pubkey, e);
+                Err((pubkey, anyhow!(e)))
+            }
         }
     }))
     .await;
@@ -265,11 +259,25 @@ async fn main() -> Result<()> {
                 info!("Writing private key for {}", pubkey);
                 let permit = semaphore.clone().acquire_owned().await?;
                 let web3signer_key_store_path = config.web3signer_key_store_path.clone();
+                let pubkey_clone = pubkey.clone();
                 let task = tokio::spawn(async move {
-                    let write =
-                        write_vault_key(&vault_key.to_config()?, &web3signer_key_store_path).await;
-                    drop(permit);
-                    write
+                    let sleep_duration_seconds = Duration::from_secs(1);
+                    loop {
+                        match write_vault_key(&vault_key, &web3signer_key_store_path).await {
+                            Ok(_) => {
+                                drop(permit);
+                                break;
+                            }
+                            Err(e) => {
+                                error!(
+                                    "Failed to write private key for {}: {}, retrying in {}s",
+                                    pubkey_clone,
+                                    e,
+                                    sleep_duration_seconds.as_secs()
+                                );
+                            }
+                        }
+                    }
                 });
                 tasks.push((pubkey, task));
             }
@@ -281,16 +289,10 @@ async fn main() -> Result<()> {
 
     let _writes: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
-            Ok(result) => match result {
-                Ok(_) => {
-                    info!("Private key written successfully for: {}", pubkey);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("Failed to write private key for {}: {}", pubkey, e);
-                    Err(anyhow!(e))
-                }
-            },
+            Ok(_) => {
+                info!("Private key written successfully for: {}", pubkey);
+                Ok(())
+            }
             Err(e) => {
                 error!("Failed to write private key for {}: {}", pubkey, e);
                 Err(anyhow!(e))

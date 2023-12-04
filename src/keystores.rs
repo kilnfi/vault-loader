@@ -24,15 +24,15 @@ impl VaultKey {
     pub fn new(object: Value, pubkey: &str) -> Result<Self, anyhow::Error> {
         let mut vault_key: Self = serde_json::from_value(object)?;
         vault_key.pubkey = pubkey.to_string();
-        if vault_key.vkey.is_none()
-            && vault_key.password.is_none()
-            && vault_key.pbkdf2_key.is_none()
-            && vault_key.scrypt_key.is_none()
-            && vault_key.raw_unencrypted_key.is_none()
+        if ((vault_key.vkey.is_some()
+            || vault_key.pbkdf2_key.is_some()
+            || vault_key.scrypt_key.is_some())
+            && vault_key.password.is_some())
+            || vault_key.raw_unencrypted_key.is_some()
         {
-            return Err(anyhow!("Invalid vault key"));
+            return Ok(vault_key);
         }
-        Ok(vault_key)
+        Err(anyhow!("Invalid vault key"))
     }
 
     pub fn to_config(&self) -> Result<Web3signerKeyConfigFormat, Error> {
