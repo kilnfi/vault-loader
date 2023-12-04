@@ -212,7 +212,7 @@ async fn main() -> Result<()> {
         ))?;
         let pubkey_clone = pubkey.clone();
         let task = tokio::spawn(async move {
-            let vault_key = loop {
+            loop {
                 let vault_key = async {
                     VaultKey::new(
                         vault_client
@@ -227,6 +227,7 @@ async fn main() -> Result<()> {
                 }.await;
 
                 if vault_key.is_ok() {
+                    drop(permit);
                     break vault_key;
                 } else {
                     warn!(
@@ -235,9 +236,7 @@ async fn main() -> Result<()> {
                     );
                     sleep(Duration::from_secs(1)).await;
                 }
-            };
-            drop(permit);
-            vault_key
+            }
         });
         tasks.push((pubkey, task));
     }
