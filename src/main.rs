@@ -213,19 +213,7 @@ async fn main() -> Result<()> {
         let pubkey_clone = pubkey.clone();
         let task = tokio::spawn(async move {
             loop {
-                let vault_key = async {
-                    VaultKey::new(
-                        vault_client
-                            .get(url.clone())
-                            .send()
-                            .await?
-                            .json::<Value>()
-                            .await?["data"]["data"]
-                            .clone(),
-                        &pubkey_clone,
-                    )
-                }
-                .await;
+                let vault_key = vault_req(&vault_client, url.clone(), &pubkey_clone).await;
 
                 if vault_key.is_ok() {
                     drop(permit);
@@ -307,4 +295,15 @@ async fn main() -> Result<()> {
     println!("Elapsed time: {:.2?}", elapsed);
 
     Ok(())
+}
+
+async fn vault_req(
+    vault_client: &Client,
+    url: Url,
+    pubkey: &str,
+) -> Result<VaultKey, Box<dyn std::error::Error + Send + Sync>> {
+    VaultKey::new(
+        vault_client.get(url).send().await?.json::<Value>().await?["data"]["data"].clone(),
+        pubkey,
+    )
 }
