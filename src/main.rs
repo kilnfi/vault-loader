@@ -9,11 +9,13 @@ use reqwest::{
 };
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use std::{fs, path::Path};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
+use tokio::time::sleep;
 
 mod cli;
 mod config;
@@ -210,19 +212,8 @@ async fn main() -> Result<()> {
         ))?;
         let pubkey_clone = pubkey.clone();
         let task = tokio::spawn(async move {
-            let mut vault_key = VaultKey::new(
-                vault_client
-                    .get(url.clone())
-                    .send()
-                    .await?
-                    .json::<Value>()
-                    .await?["data"]["data"]
-                    .clone(),
-                &pubkey_clone,
-            );
-            while vault_key.is_err() {
-                warn!("Retrying private key for {}", &pubkey_clone);
-                vault_key = VaultKey::new(
+            let vault_key = loop {
+                let vault_key = VaultKey::new(
                     vault_client
                         .get(url.clone())
                         .send()
@@ -232,7 +223,17 @@ async fn main() -> Result<()> {
                         .clone(),
                     &pubkey_clone,
                 );
-            }
+
+                if vault_key.is_ok() {
+                    break vault_key;
+                } else {
+                    warn!(
+                        "Failed to retrieve private key for {}, retrying in 1s...",
+                        pubkey_clone
+                    );
+                    sleep(Duration::from_secs(1)).await;
+                }
+            };
             drop(permit);
             vault_key
         });
