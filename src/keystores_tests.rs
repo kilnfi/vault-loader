@@ -147,3 +147,27 @@ fn test_vault_key_new_invalid() {
     let vault_key_result = VaultKey::new(vault_key_json.unwrap(), "0x8000025593183bad1730e78b87b6bce428492e3bf9142d2609032daf674596f955d6403481c7d84809905a262c0136e2");
     assert!(vault_key_result.is_err());
 }
+
+#[test]
+fn test_vault_key_new_partial_invalid_vkey() {
+    let vault_key_json = serde_json::from_str(
+        r#"{
+        "vkey": "data"
+        }"#,
+    );
+    assert!(vault_key_json.is_ok());
+    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), "0x8000025593183bad1730e78b87b6bce428492e3bf9142d2609032daf674596f955d6403481c7d84809905a262c0136e2");
+    assert!(vault_key_result.is_err());
+}
+
+#[test]
+fn test_vault_key_new_partial_invalid_password() {
+    let vault_key_json = serde_json::from_str(
+        r#"{
+        "password": "data"
+        }"#,
+    );
+    assert!(vault_key_json.is_ok());
+    let vault_key_result = VaultKey::new(vault_key_json.unwrap(), "0x8000025593183bad1730e78b87b6bce428492e3bf9142d2609032daf674596f955d6403481c7d84809905a262c0136e2");
+    assert!(vault_key_result.is_err());
+}
