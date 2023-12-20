@@ -1,9 +1,8 @@
 use anyhow::{anyhow, Context, Error, Result};
 use clap::Parser;
 use futures::future::join_all;
-use indicatif::{ProgressBar, ProgressStyle};
 use keystores::Web3signerKeyConfig;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
     Certificate, Client, ClientBuilder, Identity, Url,
@@ -206,14 +205,9 @@ async fn main() -> Result<()> {
 
     let semaphore = Arc::new(Semaphore::new(config.vault_max_concurrent_requests));
     let mut tasks = vec![];
-    let pb_fetch = ProgressBar::new(pubkeys.len() as u64);
-    pb_fetch.set_style(
-        ProgressStyle::with_template("Fetching private keys from Vault: {bar:40} {pos:>7}/{len:7}")
-            .unwrap(),
-    );
 
     for pubkey in pubkeys {
-        debug!("Requesting private key for {}", pubkey);
+        info!("Requesting private key for {}", pubkey);
         let vault_client = vault_client.clone();
         let permit = semaphore.clone().acquire_owned().await?;
         let url = Url::parse(&format!(
@@ -221,7 +215,6 @@ async fn main() -> Result<()> {
             &config.vault_addr, &config.vault_path, pubkey,
         ))?;
         let pubkey_clone = pubkey.clone();
-        let pb_fetch = pb_fetch.clone();
         let task = tokio::spawn(async move {
             let sleep_duration_seconds = Duration::from_secs(1);
             loop {
@@ -229,7 +222,6 @@ async fn main() -> Result<()> {
                     get_vault_key(&vault_client, url.clone(), &pubkey_clone).await
                 {
                     drop(permit);
-                    pb_fetch.inc(1);
                     break vault_key;
                 } else {
                     warn!(
@@ -247,7 +239,7 @@ async fn main() -> Result<()> {
     let responses: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
             Ok(vault_key) => {
-                debug!("Received private key for: {}", pubkey);
+                info!("Received private key for: {}", pubkey);
                 Ok((pubkey, vault_key))
             }
             Err(e) => {
@@ -258,32 +250,22 @@ async fn main() -> Result<()> {
     }))
     .await;
 
-    pb_fetch.finish();
-
-    let pb_write = ProgressBar::new(responses.len() as u64);
-    pb_write.set_style(
-        ProgressStyle::with_template("Writting private keys to file: {bar:40} {pos:>7}/{len:7}")
-            .unwrap(),
-    );
-
     let semaphore = Arc::new(Semaphore::new(config.max_open_file_descriptors));
     let mut tasks = vec![];
 
     for response in responses {
         match response {
             Ok((pubkey, vault_key)) => {
-                debug!("Writing private key for {}", pubkey);
+                info!("Writing private key for {}", pubkey);
                 let permit = semaphore.clone().acquire_owned().await?;
                 let web3signer_key_store_path = config.web3signer_key_store_path.clone();
                 let pubkey_clone = pubkey.clone();
-                let pb_write = pb_write.clone();
                 let task = tokio::spawn(async move {
                     let sleep_duration_seconds = Duration::from_secs(1);
                     loop {
                         match write_vault_key(&vault_key, &web3signer_key_store_path).await {
                             Ok(_) => {
                                 drop(permit);
-                                pb_write.inc(1);
                                 break;
                             }
                             Err(e) => {
@@ -308,7 +290,7 @@ async fn main() -> Result<()> {
     let _writes: Vec<_> = join_all(tasks.into_iter().map(|(pubkey, task)| async move {
         match task.await {
             Ok(_) => {
-                debug!("Private key written successfully for: {}", pubkey);
+                info!("Private key written successfully for: {}", pubkey);
                 Ok(())
             }
             Err(e) => {
@@ -319,7 +301,6 @@ async fn main() -> Result<()> {
     }))
     .await;
 
-    pb_write.finish();
     let end = Instant::now();
     let elapsed = end - start;
     println!("Elapsed time: {:.2?}", elapsed);
