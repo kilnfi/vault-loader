@@ -32,7 +32,7 @@ fn default_vault_max_concurrent_requests() -> usize {
 }
 
 fn default_max_open_file_descriptors() -> usize {
-    1024
+    500
 }
 
 impl Config {
